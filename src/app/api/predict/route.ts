@@ -13,8 +13,6 @@ export async function POST(request: NextRequest) {
       crest_factor: Number(body.crest_factor),
       kurtosis: Number(body.kurtosis),
       temperature_delta: Number(body.temperature_delta),
-      freq_ratio: Number(body.freq_ratio),
-      spectral_energy: Number(body.spectral_energy),
       // Preserve optional raw values if provided
       ...(body.raw && { raw: body.raw }),
       ...(body.device_id && { device_id: body.device_id }),
@@ -27,8 +25,6 @@ export async function POST(request: NextRequest) {
       crest_factor: reading.crest_factor,
       kurtosis: reading.kurtosis,
       temperature_delta: reading.temperature_delta,
-      freq_ratio: reading.freq_ratio,
-      spectral_energy: reading.spectral_energy,
     };
 
     for (const [key, value] of Object.entries(features)) {

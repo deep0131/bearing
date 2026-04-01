@@ -6,8 +6,6 @@ export interface SensorReading {
   crest_factor: number;
   kurtosis: number;
   temperature_delta: number;
-  freq_ratio: number;
-  spectral_energy: number;
   // Metadata
   timestamp?: number;
   device_id?: string;
@@ -16,8 +14,6 @@ export interface SensorReading {
     rms: number;
     peak: number;
     temp: number;
-    fft_freq: number;
-    fft_amp: number;
   };
 }
 

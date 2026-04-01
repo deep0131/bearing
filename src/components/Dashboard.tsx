@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import SensorCard from "@/components/SensorCard";
 import HealthGauge from "@/components/HealthGauge";
 import TrendChart from "@/components/TrendChart";
-import FFTChart from "@/components/FFTChart";
+import HealthRadar from "@/components/RawVsNormChart";
 import SystemFlow from "@/components/SystemFlow";
 import type { SensorReading, PredictionResult, HistoryEntry } from "@/lib/types";
 
@@ -111,12 +111,12 @@ export default function Dashboard() {
       {/* Header */}
       <header className="border-b border-white/10 bg-navy-900/80 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center">
-              <svg className="w-6 h-6 text-navy-900" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-            </div>
+          <div className="flex items-center gap-1">
+            <img
+              src="/logo.png"
+              alt="BearingPulse Logo"
+              className="w-16 h-16 object-contain"
+            />
             <div>
               <h1 className="text-xl font-bold text-white">
                 Bearing<span className="text-cyan-400">Pulse</span>
@@ -136,8 +136,8 @@ export default function Dashboard() {
             <button
               onClick={() => setIsLive(!isLive)}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 ${isLive
-                  ? "bg-cyan-400/10 text-cyan-400 border border-cyan-400/30 shadow-[0_0_15px_rgba(0,240,255,0.15)]"
-                  : "bg-white/5 text-slate-400 border border-white/10 hover:border-white/20"
+                ? "bg-cyan-400/10 text-cyan-400 border border-cyan-400/30 shadow-[0_0_15px_rgba(0,240,255,0.15)]"
+                : "bg-white/5 text-slate-400 border border-white/10 hover:border-white/20"
                 }`}
             >
               <span className={`w-2 h-2 rounded-full ${isLive ? "bg-cyan-400 animate-pulse" : "bg-slate-600"}`} />
@@ -196,13 +196,18 @@ export default function Dashboard() {
           </div>
 
           {/* Sensor Cards — Normalized, motor-agnostic features */}
-          <div className="lg:col-span-8 grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <div className="lg:col-span-8 grid grid-cols-2 gap-4">
             <SensorCard
               label="RMS Norm"
               value={currentReading?.rms_norm}
               unit="×"
               icon="vibration"
               thresholds={{ warn: 1.2, danger: 1.8 }}
+              rawLabel="Sensor"
+              rawValue={currentReading?.raw?.rms != null ? `${currentReading.raw.rms.toFixed(3)} m/s²` : undefined}
+              baseLabel="Baseline"
+              baseValue={currentReading?.raw?.rms != null && currentReading.rms_norm !== 0 ? `${(currentReading.raw.rms / currentReading.rms_norm).toFixed(3)} m/s²` : undefined}
+              howItWorks="Vibration now ÷ healthy vibration. 1.0× = same as normal."
             />
             <SensorCard
               label="Crest Factor"
@@ -210,6 +215,11 @@ export default function Dashboard() {
               unit=""
               icon="acceleration"
               thresholds={{ warn: 4.0, danger: 6.0 }}
+              rawLabel="Peak"
+              rawValue={currentReading?.raw?.peak != null ? `${currentReading.raw.peak.toFixed(3)} g` : undefined}
+              baseLabel="RMS"
+              baseValue={currentReading?.raw?.rms != null ? `${currentReading.raw.rms.toFixed(3)} m/s²` : undefined}
+              howItWorks="Sharpest spike ÷ average vibration. High = impacts detected."
             />
             <SensorCard
               label="Kurtosis"
@@ -217,6 +227,11 @@ export default function Dashboard() {
               unit=""
               icon="amplitude"
               thresholds={{ warn: 5.0, danger: 10.0 }}
+              rawLabel="Meaning"
+              rawValue="Signal spikiness"
+              baseLabel="Normal"
+              baseValue="≈ 3.0"
+              howItWorks="How spiky the vibration is. ~3 = smooth, >10 = sharp impacts."
             />
             <SensorCard
               label="Temp Delta"
@@ -224,28 +239,19 @@ export default function Dashboard() {
               unit="°C"
               icon="temperature"
               thresholds={{ warn: 10, danger: 25 }}
-            />
-            <SensorCard
-              label="Freq Ratio"
-              value={currentReading?.freq_ratio}
-              unit="×"
-              icon="frequency"
-              thresholds={{ warn: 1.5, danger: 3.0 }}
-            />
-            <SensorCard
-              label="Spectral Energy"
-              value={currentReading?.spectral_energy}
-              unit=""
-              icon="amplitude"
-              thresholds={{ warn: 0.1, danger: 0.3 }}
+              rawLabel="Now"
+              rawValue={currentReading?.raw?.temp != null ? `${currentReading.raw.temp.toFixed(1)}°C` : undefined}
+              baseLabel="Healthy"
+              baseValue={currentReading?.raw?.temp != null ? `${(currentReading.raw.temp - (currentReading?.temperature_delta ?? 0)).toFixed(1)}°C` : undefined}
+              howItWorks="Current temp minus healthy temp. Rise = more friction/wear."
             />
           </div>
         </div>
 
-        {/* Row 2: Trend Chart + FFT Chart */}
+        {/* Row 2: Trend Chart + Raw vs Normalized */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <TrendChart history={history} />
-          <FFTChart reading={currentReading} />
+          <HealthRadar reading={currentReading} />
         </div>
 
         {/* Row 3: System Flow */}

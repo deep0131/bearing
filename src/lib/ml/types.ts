@@ -34,6 +34,4 @@ export const FEATURE_NAMES = [
   "crest_factor",
   "kurtosis",
   "temperature_delta",
-  "freq_ratio",
-  "spectral_energy",
 ] as const;

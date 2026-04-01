@@ -20,7 +20,7 @@ class SeededRandom {
 /**
  * Parse the CSV dataset file into TrainingData.
  *
- * CSV columns: rms_norm, crest_factor, kurtosis, temperature_delta, freq_ratio, spectral_energy, label
+ * CSV columns: rms_norm, crest_factor, kurtosis, temperature_delta, label
  * Labels: "Healthy" | "Degraded" | "Danger"
  */
 function parseCSV(csvContent: string): TrainingData {
@@ -28,14 +28,14 @@ function parseCSV(csvContent: string): TrainingData {
   const header = lines[0].split(",");
 
   // Validate header
-  const expectedCols = ["rms_norm", "crest_factor", "kurtosis", "temperature_delta", "freq_ratio", "spectral_energy", "label"];
+  const expectedCols = ["rms_norm", "crest_factor", "kurtosis", "temperature_delta", "label"];
   for (const col of expectedCols) {
     if (!header.includes(col)) {
       throw new Error(`Missing expected column: ${col}. Found: ${header.join(", ")}`);
     }
   }
 
-  const featureCols = expectedCols.slice(0, 6);
+  const featureCols = expectedCols.slice(0, 4);
   const featureIndices = featureCols.map(col => header.indexOf(col));
   const labelIndex = header.indexOf("label");
 
@@ -90,13 +90,11 @@ function shuffleData(data: TrainingData, seed: number = 123): TrainingData {
  * Load training data from the CSV dataset.
  *
  * At build time (Node.js) this reads the file from disk.
- * The data contains 6 normalized, motor-agnostic features:
+ * The data contains 4 normalized, motor-agnostic features:
  *   - rms_norm:          RMS / baseline_rms (1.0 = healthy baseline)
  *   - crest_factor:      peak / rms (ratio, scale-independent)
  *   - kurtosis:          4th statistical moment (impulse detection)
  *   - temperature_delta: temp - baseline_temp (relative rise °C)
- *   - freq_ratio:        dominant_freq / baseline_freq (1.0 = normal)
- *   - spectral_energy:   peak_amplitude / total_spectral_power
  */
 export function generateTrainingData(): TrainingData {
   // Resolve path to the CSV data file

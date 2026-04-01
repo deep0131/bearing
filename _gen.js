@@ -14,8 +14,6 @@ function gen(n, label, cfg) {
       c(g(cfg[1][0], cfg[1][1]), cfg[1][2], cfg[1][3]).toFixed(4),
       c(g(cfg[2][0], cfg[2][1]), cfg[2][2], cfg[2][3]).toFixed(4),
       c(g(cfg[3][0], cfg[3][1]), cfg[3][2], cfg[3][3]).toFixed(2),
-      c(g(cfg[4][0], cfg[4][1]), cfg[4][2], cfg[4][3]).toFixed(4),
-      c(g(cfg[5][0], cfg[5][1]), cfg[5][2], cfg[5][3]).toFixed(4),
       label
     ].join(','));
   }
@@ -23,13 +21,13 @@ function gen(n, label, cfg) {
 }
 
 const h = gen(3000, 'Healthy', [
-  [1,0.12,0.7,1.5],[3,0.3,2,4.5],[3,0.4,2,5],[2,1.5,0,8],[1,0.15,0.5,1.8],[0.05,0.02,0.01,0.15]
+  [1,0.12,0.7,1.5],[3,0.3,2,4.5],[3,0.4,2,5],[2,1.5,0,8]
 ]);
 const d = gen(1200, 'Degraded', [
-  [2.2,0.5,1.3,4],[4.5,0.6,3,7],[5.5,1.2,3.5,10],[12,4,4,25],[2.5,0.6,1.2,4.5],[0.25,0.08,0.08,0.5]
+  [2.2,0.5,1.3,4],[4.5,0.6,3,7],[5.5,1.2,3.5,10],[12,4,4,25]
 ]);
 const x = gen(800, 'Danger', [
-  [4.5,1,3,8],[7,1.2,5,12],[12,3,7,25],[30,8,15,60],[5,1.5,3,10],[0.55,0.15,0.3,0.95]
+  [4.5,1,3,8],[7,1.2,5,12],[12,3,7,25],[30,8,15,60]
 ]);
 
 const all = [...h, ...d, ...x];
@@ -39,6 +37,6 @@ for (let i = all.length - 1; i > 0; i--) {
 }
 
 fs.mkdirSync('./data', { recursive: true });
-const header = 'rms_norm,crest_factor,kurtosis,temperature_delta,freq_ratio,spectral_energy,label';
+const header = 'rms_norm,crest_factor,kurtosis,temperature_delta,label';
 fs.writeFileSync('./data/bearing_health_dataset.csv', header + '\n' + all.join('\n'));
 console.log('Done: ' + all.length + ' rows saved to ./data/bearing_health_dataset.csv');

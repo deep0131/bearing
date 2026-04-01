@@ -7,22 +7,20 @@ import type { SensorReading, PredictionResult, HealthStatus } from "../types";
 /**
  * Run weighted ensemble prediction on normalized sensor features.
  *
- * The 6 features are already motor-agnostic (computed on ESP32):
- *   rms_norm, crest_factor, kurtosis, temperature_delta, freq_ratio, spectral_energy
+ * The 4 features are already motor-agnostic (computed on ESP32):
+ *   rms_norm, crest_factor, kurtosis, temperature_delta
  *
  * Final_Probability(class) = 0.50 × RF + 0.25 × KNN + 0.25 × LR
  */
 export async function predict(reading: SensorReading): Promise<PredictionResult> {
   const models = await getTrainedModels();
 
-  // Build feature vector from the 6 normalized features (order must match CSV columns)
+  // Build feature vector from the 4 normalized features (order must match CSV columns)
   const featureVector = [
     reading.rms_norm,
     reading.crest_factor,
     reading.kurtosis,
     reading.temperature_delta,
-    reading.freq_ratio,
-    reading.spectral_energy,
   ];
 
   const scaled = scaleSingle(featureVector, models.scaler);

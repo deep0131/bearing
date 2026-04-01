@@ -324,18 +324,14 @@ Example (Damaged):
     kurtosis ≈ 14.5 (very spiky — bearing defect!)
 ```
 
-### Step 5: Run FFT (Fast Fourier Transform)
-
-See next section for detailed explanation.
-
-### Step 6: Read Temperature
+### Step 5: Read Temperature
 
 ```
 tempSensor.requestTemperatures();
 rawTemp = tempSensor.getTempCByIndex(0);  // Read DS18B20 in °C
 ```
 
-### Step 7: Compute Normalized Features & Send to Firebase
+### Step 6: Compute Normalized Features & Send to Firebase
 
 See Section 8 for feature calculations and Section 10 for Firebase data format.
 
@@ -343,97 +339,21 @@ See Section 8 for feature calculations and Section 10 for Firebase data format.
 
 ---
 
-# 7. Signal Processing — FFT Explained
-
-## What is FFT?
-
-**FFT (Fast Fourier Transform)** converts a vibration signal from the **time domain** (amplitude vs. time) to the **frequency domain** (amplitude vs. frequency).
-
-### Why do we need it?
-
-Different bearing defects produce vibrations at **specific frequencies**. By analyzing which frequencies are present, we can identify what type of defect exists.
-
-```
-Time Domain:    "The bearing is vibrating a lot"
-                (we know SOMETHING is wrong, but not WHAT)
-
-Frequency Domain: "There's a strong vibration at 147 Hz"
-                  (this specific frequency tells us it's an outer race defect!)
-```
-
-### How FFT Works in BearingPulse
-
-```
-Input:  256 vibration magnitude samples collected at 1000 Hz
-Output: 128 frequency bins showing energy at each frequency
-
-Frequency Resolution = Sampling Rate / Number of Samples
-                     = 1000 Hz / 256
-                     = 3.906 Hz per bin
-
-Frequency Range = 0 Hz to (Sampling Rate / 2)
-                = 0 Hz to 500 Hz  (Nyquist limit)
-
-Each bin i represents frequency:
-    freq(i) = i × 1000 / 256
-
-    Bin 0: 0.0 Hz (DC component — ignored)
-    Bin 1: 3.9 Hz
-    Bin 2: 7.8 Hz
-    ...
-    Bin 10: 39.1 Hz
-    ...
-    Bin 25: 97.7 Hz
-    Bin 50: 195.3 Hz
-    Bin 127: 496.1 Hz
-```
-
-### Hamming Window
-
-Before FFT, we apply a **Hamming window** to reduce spectral leakage (artifacts at the edges of the sample window):
-
-```
-window(i) = 0.54 - 0.46 × cos(2π × i / (N-1))
-
-This smoothly tapers the signal at the edges to zero, producing cleaner frequency results.
-```
-
-### What we extract from FFT:
-
-| Value | How it's found | What it means |
-|-------|----------------|---------------|
-| **Dominant Frequency** | Bin with highest amplitude (skipping bins 0-1) | The main vibration frequency |
-| **Peak Amplitude** | The amplitude at the dominant frequency | How strong the main vibration is |
-| **Total Spectral Power** | Sum of all bin amplitudes | Overall vibration energy across all frequencies |
-
-```
-Example:
-    After FFT, bin amplitudes: [0, 0, 0.5, 0.3, 0.8, 2.1, 0.4, ...]
-                                     ↑bin2  ↑bin3  ↑bin4  ↑bin5  ↑bin6
-
-    Dominant Frequency = bin 5 → 5 × 1000/256 = 19.5 Hz
-    Peak Amplitude = 2.1
-    Total Spectral Power = 0.5 + 0.3 + 0.8 + 2.1 + 0.4 + ... = 12.7
-```
-
-<div style="page-break-after: always;"></div>
-
 ---
 
-# 8. Feature Engineering — The 6 Normalized Features
+# 7. Feature Engineering — The 4 Normalized Features
 
 The key innovation of BearingPulse is that it uses **normalized, motor-agnostic features**. This means the system works with ANY motor — a small desk fan or a large industrial pump — without changing any code.
 
 ## How? Baseline Normalization
 
-During calibration (described in Section 9), the system records baseline values for a **healthy** motor:
+During calibration (described in Section 8), the system records baseline values for a **healthy** motor:
 - `baseline_rms` — How much a healthy motor vibrates
 - `baseline_temp` — Normal operating temperature
-- `baseline_freq` — Normal dominant frequency
 
 All features are then expressed **relative to these baselines**.
 
-## The 6 Features Explained
+## The 4 Features Explained
 
 ### Feature 1: `rms_norm` (Normalized RMS Vibration)
 
@@ -511,39 +431,7 @@ Example:
     temperature_delta = 48.5 - 35.0 = 13.5°C (above normal!)
 ```
 
-### Feature 5: `freq_ratio` (Frequency Shift)
-
-```
-Formula: freq_ratio = dominant_frequency / baseline_frequency
-
-What it means:
-    ≈ 1.0  → Same frequency as healthy operation
-    1.5-3.0 → Frequency is shifting (bearing geometry changing)
-    > 3.0  → Major frequency change (severe structural change)
-
-Example:
-    baseline_freq = 50.0 Hz (motor running at 3000 RPM)
-    current_freq  = 120.0 Hz
-    freq_ratio = 120.0 / 50.0 = 2.4× (new harmonic appearing!)
-```
-
-### Feature 6: `spectral_energy` (Spectral Concentration)
-
-```
-Formula: spectral_energy = peak_FFT_amplitude / total_spectral_power
-
-What it means:
-    < 0.1  → Energy spread across many frequencies (normal)
-    0.1-0.3 → Energy concentrating at specific frequency (developing fault)
-    > 0.3  → Energy highly concentrated (strong defect signature)
-
-Example:
-    peak_amplitude = 2.1
-    total_power = 12.7
-    spectral_energy = 2.1 / 12.7 = 0.165 (some concentration)
-```
-
-## Summary Table — All 6 Features
+## Summary Table — All 4 Features
 
 | # | Feature | Formula | Healthy Range | Degraded Range | Danger Range | Unit |
 |---|---------|---------|---------------|----------------|--------------|------|
@@ -551,14 +439,12 @@ Example:
 | 2 | `crest_factor` | Peak / RMS | 2.0 – 4.0 | 4.0 – 6.0 | > 6.0 | ratio |
 | 3 | `kurtosis` | 4th moment / σ⁴ | 2.0 – 5.0 | 5.0 – 10.0 | > 10.0 | dimensionless |
 | 4 | `temperature_delta` | Temp − baseline | 0 – 5°C | 5 – 15°C | > 25°C | °C |
-| 5 | `freq_ratio` | Freq / baseline_freq | 0.7 – 1.3 | 1.3 – 3.0 | > 3.0 | × (times) |
-| 6 | `spectral_energy` | Peak_amp / total_power | 0 – 0.1 | 0.1 – 0.3 | > 0.3 | ratio |
 
 <div style="page-break-after: always;"></div>
 
 ---
 
-# 9. Calibration System
+# 8. Calibration System
 
 ## What is Calibration?
 
@@ -578,13 +464,11 @@ Calibration teaches the system what "healthy" looks like for YOUR specific motor
 For 30 seconds (1 sample per second):
     1. Read acceleration → compute RMS
     2. Read temperature
-    3. Run FFT → find dominant frequency
-    4. Accumulate totals
+    3. Accumulate totals
 
 After 30 samples:
     baseline_rms  = average_of_all_RMS_values
     baseline_temp = average_of_all_temperatures
-    baseline_freq = average_of_all_dominant_frequencies
 
 These are saved to NVS (persistent across reboots).
 ```
@@ -595,7 +479,6 @@ NVS is the ESP32's built-in flash memory that persists across power cycles:
 ```
 preferences.putFloat("rms",  baseline_rms);   // Saved permanently
 preferences.putFloat("temp", baseline_temp);   // Survives reboot
-preferences.putFloat("freq", baseline_freq);   // No recalibration needed
 preferences.putBool("valid", true);            // Marks calibration as done
 ```
 
@@ -605,7 +488,7 @@ Baselines are also uploaded to Firebase at `bearingpulse/baselines/ESP32_001` fo
 
 ---
 
-# 10. Firebase Cloud Database
+# 9. Firebase Cloud Database
 
 ## What is Firebase?
 
@@ -621,16 +504,12 @@ bearingpulse/
 │   │   ├── crest_factor: 3.2
 │   │   ├── kurtosis: 2.95
 │   │   ├── temperature_delta: 1.5
-│   │   ├── freq_ratio: 0.98
-│   │   ├── spectral_energy: 0.04
 │   │   ├── timestamp: 1711900000000
 │   │   ├── device_id: "ESP32_001"
 │   │   └── raw/
 │   │       ├── rms: 0.052
 │   │       ├── peak: 0.043
-│   │       ├── temp: 36.5
-│   │       ├── fft_freq: 49.2
-│   │       └── fft_amp: 0.85
+│   │       └── temp: 36.5
 │   └── -NxyzDEF456/
 │       └── ...
 │
@@ -638,7 +517,6 @@ bearingpulse/
     └── ESP32_001/
         ├── baseline_rms: 0.05
         ├── baseline_temp: 35.0
-        ├── baseline_freq: 50.0
         ├── device_id: "ESP32_001"
         └── calibrated_at: 45000
 ```
@@ -658,16 +536,12 @@ Body (JSON):
     "crest_factor": 3.2,
     "kurtosis": 2.95,
     "temperature_delta": 1.5,
-    "freq_ratio": 0.98,
-    "spectral_energy": 0.04,
     "timestamp": 1711900000000,
     "device_id": "ESP32_001",
     "raw": {
         "rms": 0.052,
         "peak": 0.043,
-        "temp": 36.5,
-        "fft_freq": 49.2,
-        "fft_amp": 0.85
+        "temp": 36.5
     }
 }
 ```
@@ -686,7 +560,7 @@ Path:  bearingpulse/readings
 
 ---
 
-# 11. Machine Learning Engine
+# 10. Machine Learning Engine
 
 ## Overview
 
@@ -717,7 +591,7 @@ By combining all three, we get a prediction that's more reliable than any single
 ```
 Configuration:
     Number of trees (nEstimators): 50
-    Max features per split: 70% of features (4 out of 6)
+    Max features per split: 70% of features (3 out of 4)
     Bagging: Yes (each tree sees a random subset of data)
     Random seed: 42 (for reproducibility)
 
@@ -773,7 +647,7 @@ How One-vs-Rest works:
 Each binary classifier uses the sigmoid function:
     sigmoid(z) = 1 / (1 + e^(-z))
 
-    where z = w₁×feature₁ + w₂×feature₂ + ... + w₆×feature₆ + bias
+    where z = w₁×feature₁ + w₂×feature₂ + ... + w₄×feature₄ + bias
 
     Gradient descent updates:
         weight_j -= learning_rate × (1/n) × Σ(predicted - actual) × feature_j
@@ -796,7 +670,7 @@ Example for rms_norm:
 
 Why scale? Because KNN and Logistic Regression are sensitive to feature
 magnitudes. Without scaling, a feature like temperature_delta (0-50)
-would dominate over spectral_energy (0-1).
+would dominate over kurtosis (2-18).
 ```
 
 ## Ensemble Combination — Worked Example
@@ -804,7 +678,7 @@ would dominate over spectral_energy (0-1).
 ```
 Input reading:
     rms_norm=2.3, crest_factor=4.7, kurtosis=6.5,
-    temperature_delta=17.1, freq_ratio=1.8, spectral_energy=0.30
+    temperature_delta=17.1
 
 Step 1: Scale features using training data statistics
 Step 2: Get predictions from each model:
@@ -831,7 +705,7 @@ Step 5: Final result:
 
 ---
 
-# 12. Web Dashboard (Next.js)
+# 11. Web Dashboard (Next.js)
 
 ## Technology Stack
 
@@ -862,7 +736,7 @@ A circular SVG gauge showing:
 
 ### 3. `SensorCard.tsx` — Individual Feature Display
 
-Six cards showing real-time feature values with:
+Four cards showing real-time feature values with:
 - Color-coded status (green/yellow/red based on thresholds)
 - Animated progress bars
 - Numerical value with unit
@@ -874,11 +748,7 @@ Shows trends over time for:
 - Crest Factor (purple line)
 - Temperature Delta (red line)
 
-### 5. `FFTChart.tsx` — Spectral Distribution
-
-Bar chart showing energy distribution across frequency bands, derived deterministically from `freq_ratio` and `spectral_energy`.
-
-### 6. `SystemFlow.tsx` — Architecture Diagram
+### 5. `SystemFlow.tsx` — Architecture Diagram
 
 Visual pipeline: Sensors → ESP32 → Firebase → ML Model → Dashboard
 Shows live/idle status with animations.
@@ -894,7 +764,7 @@ Shows live/idle status with animations.
 
 ---
 
-# 13. API Endpoints
+# 12. API Endpoints
 
 The Next.js server exposes 3 API routes:
 
@@ -925,9 +795,7 @@ Body: {
     "rms_norm": 1.05,
     "crest_factor": 3.2,
     "kurtosis": 2.95,
-    "temperature_delta": 1.5,
-    "freq_ratio": 0.98,
-    "spectral_energy": 0.04
+    "temperature_delta": 1.5
 }
 
 Response: {
@@ -956,11 +824,11 @@ Response: { "status": "ok", "service": "BearingPulse API", "timestamp": "..." }
 
 ---
 
-# 14. Dataset Details
+# 13. Dataset Details
 
 ## File: `data/bearing_health_dataset.csv`
 
-The ML models are trained on a CSV dataset containing **5,000 samples** with 6 features and 1 label.
+The ML models are trained on a CSV dataset containing **5,000 samples** with 4 features and 1 label.
 
 ## Dataset Statistics
 
@@ -970,38 +838,36 @@ The ML models are trained on a CSV dataset containing **5,000 samples** with 6 f
 | `crest_factor` | ~2.0 | ~10.2 | Peak-to-RMS ratio |
 | `kurtosis` | ~2.0 | ~18.5 | Signal spikiness |
 | `temperature_delta` | 0.0 | ~49.0 | Temperature rise (°C) |
-| `freq_ratio` | ~0.5 | ~9.0 | Frequency shift |
-| `spectral_energy` | ~0.01 | ~0.95 | Spectral concentration |
 
 ## Class Distribution (approximate)
 
 | Class | Count | Percentage |
 |-------|-------|------------|
-| Healthy | ~2,500 | ~50% |
-| Degraded | ~1,250 | ~25% |
-| Danger | ~1,250 | ~25% |
+| Healthy | ~3,000 | ~60% |
+| Degraded | ~1,200 | ~24% |
+| Danger | ~800 | ~16% |
 
 ## Sample Data Rows
 
 ```
 Healthy example:
     rms_norm=0.99, crest_factor=3.1, kurtosis=2.55,
-    temperature_delta=0.42, freq_ratio=0.93, spectral_energy=0.03
+    temperature_delta=0.42
 
 Degraded example:
     rms_norm=2.31, crest_factor=4.71, kurtosis=6.56,
-    temperature_delta=17.08, freq_ratio=1.84, spectral_energy=0.30
+    temperature_delta=17.08
 
 Danger example:
     rms_norm=5.93, crest_factor=5.34, kurtosis=14.12,
-    temperature_delta=28.64, freq_ratio=3.42, spectral_energy=0.82
+    temperature_delta=28.64
 ```
 
 <div style="page-break-after: always;"></div>
 
 ---
 
-# 15. Complete Data Flow — End to End
+# 14. Complete Data Flow — End to End
 
 Here's exactly what happens from sensor reading to dashboard display:
 
@@ -1018,19 +884,16 @@ SECOND 0.256: Process vibration data
     │  → Update gravity estimate (EMA filter)
     │  → Subtract gravity from each sample
     │  → Compute RMS, Peak, Kurtosis
-    │  → Run FFT → get dominant freq, peak amp, spectral power
     │
     ▼
 SECOND 0.3: Read temperature from DS18B20
     │
     ▼
-SECOND 0.3: Compute 6 normalized features
+SECOND 0.3: Compute 4 normalized features
     │  rms_norm = rawRms / baseline_rms
     │  crest_factor = rawPeak / (rawRms + 0.001)
     │  kurtosis = m4 / (variance²)
     │  temperature_delta = rawTemp - baseline_temp
-    │  freq_ratio = dominantFreq / baseline_freq
-    │  spectral_energy = peakAmp / totalPower
     │
     ▼
 SECOND 0.5: Send JSON to Firebase via HTTPS POST
@@ -1054,7 +917,7 @@ Fetch latest reading from Firebase
     │
     ▼
 Send reading to ML prediction endpoint
-    │  → POST /api/predict with the 6 features
+    │  → POST /api/predict with the 4 features
     │  → Server loads trained models (cached after first call)
     │  → Scale features using StandardScaler
     │  → Get probabilities from RF, KNN, LR
@@ -1064,9 +927,8 @@ Send reading to ML prediction endpoint
     ▼
 Update Dashboard UI
     │  → Health Gauge shows status color + confidence %
-    │  → 6 Sensor Cards show current feature values
+    │  → 4 Sensor Cards show current feature values
     │  → Trend Chart adds point to history
-    │  → FFT Chart updates spectral view
     │  → System Flow shows pipeline status
 ```
 
@@ -1074,7 +936,7 @@ Update Dashboard UI
 
 ---
 
-# 16. How to Run the Project
+# 15. How to Run the Project
 
 ## Prerequisites
 
@@ -1153,7 +1015,6 @@ BearingPulse/
 │   │   ├── HealthGauge.tsx        ← Circular SVG health indicator
 │   │   ├── SensorCard.tsx         ← Individual feature display card
 │   │   ├── TrendChart.tsx         ← Line chart for historical trends
-│   │   ├── FFTChart.tsx           ← Bar chart for spectral distribution
 │   │   ├── PredictionPanel.tsx    ← Ensemble breakdown bars
 │   │   └── SystemFlow.tsx         ← Architecture pipeline diagram
 │   │
@@ -1181,18 +1042,15 @@ BearingPulse/
 
 ---
 
-# 18. Glossary
+# 17. Glossary
 
 | Term | Definition |
 |------|-----------|
 | **Bearing** | A mechanical component that constrains relative motion and reduces friction between moving parts |
 | **Predictive Maintenance** | Using data and ML to predict when equipment will fail, so maintenance can be scheduled proactively |
 | **RMS** | Root Mean Square — a statistical measure of the magnitude of a varying quantity |
-| **FFT** | Fast Fourier Transform — an algorithm to convert time-domain signals to frequency-domain |
 | **Kurtosis** | A statistical measure of the "tailedness" or "spikiness" of a probability distribution |
 | **Crest Factor** | The ratio of peak value to RMS value of a waveform |
-| **Dominant Frequency** | The frequency with the highest amplitude in the FFT spectrum |
-| **Spectral Energy** | The concentration of vibration energy at the dominant frequency |
 | **Baseline** | Reference values measured when the system is known to be in a healthy state |
 | **Motor-Agnostic** | The system works with any motor without needing motor-specific configuration |
 | **Ensemble** | Combining predictions from multiple ML models for better accuracy |
@@ -1204,8 +1062,7 @@ BearingPulse/
 | **EMA** | Exponential Moving Average — a type of weighted moving average |
 | **NVS** | Non-Volatile Storage — ESP32's flash memory that persists across reboots |
 | **Firebase RTDB** | Firebase Realtime Database — a cloud-hosted NoSQL database |
-| **Hamming Window** | A mathematical function applied before FFT to reduce spectral leakage |
-| **Nyquist Frequency** | The maximum frequency that can be measured (= sampling rate / 2) |
+
 | **I2C** | Inter-Integrated Circuit — a communication protocol for connecting sensors |
 | **One-Wire** | A communication protocol used by DS18B20 temperature sensor |
 | **Glassmorphism** | A UI design trend using frosted-glass-like translucent elements |

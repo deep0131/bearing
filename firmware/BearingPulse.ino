@@ -7,7 +7,6 @@
 #include <MPU6050.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <arduinoFFT.h>
 #include <math.h>
 #include <Preferences.h>  // ESP32 NVS for baseline storage
 
@@ -34,9 +33,7 @@ OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature tempSensor(&oneWire);
 Preferences preferences;
 
-double vReal[SAMPLES];
-double vImag[SAMPLES];
-ArduinoFFT<double> FFT = ArduinoFFT<double>(vReal, vImag, SAMPLES, SAMPLING_FREQUENCY);
+double vib_magnitudes[SAMPLES];
 
 // ─── TIMING ───
 unsigned long lastSend = 0;
@@ -45,7 +42,6 @@ const unsigned long SEND_INTERVAL = 5000;  // 60 seconds
 // ─── BASELINE VALUES (motor-agnostic normalization) ───
 float baseline_rms  = 1.0;
 float baseline_temp = 30.0;
-float baseline_freq = 50.0;
 bool  baselineValid = false;
 
 // ─── CALIBRATION ───
@@ -114,9 +110,8 @@ void setup() {
   if (baselineValid) {
     baseline_rms  = preferences.getFloat("rms", 1.0);
     baseline_temp = preferences.getFloat("temp", 30.0);
-    baseline_freq = preferences.getFloat("freq", 50.0);
     Serial.println("📦 Baseline loaded from NVS:");
-    Serial.printf("   RMS: %.4f | Temp: %.1f°C | Freq: %.1f Hz\n", baseline_rms, baseline_temp, baseline_freq);
+    Serial.printf("   RMS: %.4f | Temp: %.1f°C\n", baseline_rms, baseline_temp);
   } else {
     Serial.println("⚠️  No baseline stored. Type CAL in Serial Monitor to calibrate.");
   }
@@ -152,7 +147,6 @@ void runCalibration() {
 
   float sumRms = 0;
   float sumTemp = 0;
-  float sumFreq = 0;
   int validSamples = 0;
 
   for (int s = 0; s < CALIBRATION_SAMPLES; s++) {
@@ -175,36 +169,12 @@ void runCalibration() {
       temp = (mpu.getTemperature() / 340.0) + 36.53;
     }
 
-    // Run FFT for dominant frequency
-    unsigned long sampling_period_us = 1000000 / SAMPLING_FREQUENCY;
-    for (int i = 0; i < SAMPLES; i++) {
-      unsigned long t = micros();
-      int16_t ax_r, ay_r, az_r;
-      mpu.getAcceleration(&ax_r, &ay_r, &az_r);
-      float a_x = (ax_r / 4096.0) * 9.81 - gravity_x;
-      float a_y = (ay_r / 4096.0) * 9.81 - gravity_y;
-      float a_z = (az_r / 4096.0) * 9.81 - gravity_z;
-      vReal[i] = sqrt(a_x * a_x + a_y * a_y + a_z * a_z);
-      vImag[i] = 0;
-      while ((micros() - t) < sampling_period_us) {}
-    }
+    // Delay to simulate the time taken by sampling previously (about 256ms)
+    delay(256);
 
-    FFT.windowing(FFTWindow::Hamming, FFTDirection::Forward);
-    FFT.compute(FFTDirection::Forward);
-    FFT.complexToMagnitude();
-
-    double domFreq = 0, peakAmp = 0;
-    for (int i = 2; i < (SAMPLES / 2); i++) {
-      if (vReal[i] > peakAmp) {
-        peakAmp = vReal[i];
-        domFreq = (i * 1.0 * SAMPLING_FREQUENCY) / SAMPLES;
-      }
-    }
-
-    if (rms > 0.01 && domFreq > 0) {
+    if (rms > 0.01) {
       sumRms += rms;
       sumTemp += temp;
-      sumFreq += domFreq;
       validSamples++;
     }
 
@@ -220,23 +190,19 @@ void runCalibration() {
   // Compute baselines
   baseline_rms  = sumRms / validSamples;
   baseline_temp = sumTemp / validSamples;
-  baseline_freq = sumFreq / validSamples;
 
   // Prevent divide-by-zero
   if (baseline_rms < 0.01)  baseline_rms = 0.01;
-  if (baseline_freq < 0.1)  baseline_freq = 0.1;
 
   // Store in NVS (persists across reboots)
   preferences.putFloat("rms", baseline_rms);
   preferences.putFloat("temp", baseline_temp);
-  preferences.putFloat("freq", baseline_freq);
   preferences.putBool("valid", true);
   baselineValid = true;
 
   Serial.println("\n✅ ═══ CALIBRATION COMPLETE ═══");
   Serial.printf("   Baseline RMS:  %.4f mm/s\n", baseline_rms);
   Serial.printf("   Baseline Temp: %.1f °C\n", baseline_temp);
-  Serial.printf("   Baseline Freq: %.1f Hz\n", baseline_freq);
   Serial.printf("   Valid samples: %d/%d\n", validSamples, CALIBRATION_SAMPLES);
   Serial.println("   Values saved to NVS (persistent).\n");
 
@@ -266,7 +232,6 @@ void sendBaselineToFirebase() {
 
   doc["baseline_rms"]  = baseline_rms;
   doc["baseline_temp"] = baseline_temp;
-  doc["baseline_freq"] = baseline_freq;
   doc["device_id"]     = DEVICE_ID;
   doc["calibrated_at"] = millis();
 
@@ -354,8 +319,7 @@ void loop() {
     float vib_z = raw_az_arr[i] - gravity_z;
     
     double magnitude = sqrt(vib_x * vib_x + vib_y * vib_y + vib_z * vib_z);
-    vReal[i] = magnitude;
-    vImag[i] = 0;
+    vib_magnitudes[i] = magnitude;
     
     sumAccel  += magnitude;
     sumAccel2 += magnitude * magnitude;
@@ -392,29 +356,11 @@ void loop() {
     // Compute 4th central moment
     double m4 = 0;
     for (int i = 0; i < SAMPLES; i++) {
-      double diff = vReal[i] - meanAccel;
+      double diff = vib_magnitudes[i] - meanAccel;
       m4 += diff * diff * diff * diff;
     }
     m4 /= SAMPLES;
     kurtosis = m4 / (variance * variance);
-  }
-
-  // Run FFT
-  FFT.windowing(FFTWindow::Hamming, FFTDirection::Forward);
-  FFT.compute(FFTDirection::Forward);
-  FFT.complexToMagnitude();
-
-  // Find dominant frequency, peak amplitude, and total spectral power
-  double dominantFreq = 0;
-  double peakAmplitude = 0;
-  double totalSpectralPower = 0;
-  
-  for (int i = 2; i < (SAMPLES / 2); i++) {
-    totalSpectralPower += vReal[i];
-    if (vReal[i] > peakAmplitude) {
-      peakAmplitude = vReal[i];
-      dominantFreq = (i * 1.0 * SAMPLING_FREQUENCY) / SAMPLES;
-    }
   }
 
   // ═══════════════════════════════════
@@ -425,8 +371,6 @@ void loop() {
   float rms_norm         = rawRms / baseline_rms;
   float crest_factor     = rawPeakMs2 / (rawRms + 0.001);  // peak/rms (both in m/s²)
   float temperature_delta = rawTemp - baseline_temp;
-  float freq_ratio       = (float)(dominantFreq / baseline_freq);
-  float spectral_energy  = (totalSpectralPower > 0.001) ? (float)(peakAmplitude / totalSpectralPower) : 0.0;
 
   // ── Print to Serial ──
   Serial.println("─────────────────────────");
@@ -434,20 +378,16 @@ void loop() {
   Serial.printf("    RMS Vibration:  %.2f mm/s\n", rawRms);
   Serial.printf("    Peak Accel:     %.2f g\n", rawPeak);
   Serial.printf("    Temperature:    %.1f °C\n", rawTemp);
-  Serial.printf("    FFT Dom Freq:   %.1f Hz\n", dominantFreq);
-  Serial.printf("    FFT Peak Amp:   %.4f\n", peakAmplitude);
   Serial.println("  Normalized Features:");
   Serial.printf("    RMS Norm:       %.4f (baseline: %.4f)\n", rms_norm, baseline_rms);
   Serial.printf("    Crest Factor:   %.4f\n", crest_factor);
   Serial.printf("    Kurtosis:       %.4f\n", kurtosis);
   Serial.printf("    Temp Delta:     %.1f °C (baseline: %.1f)\n", temperature_delta, baseline_temp);
-  Serial.printf("    Freq Ratio:     %.4f (baseline: %.1f Hz)\n", freq_ratio, baseline_freq);
-  Serial.printf("    Spectral Energy:%.4f\n", spectral_energy);
 
   // ── Send to Firebase ──
   if (WiFi.status() == WL_CONNECTED) {
-    sendToFirebase(rms_norm, crest_factor, kurtosis, temperature_delta, freq_ratio, spectral_energy,
-                   rawRms, rawPeak, rawTemp, dominantFreq, peakAmplitude);
+    sendToFirebase(rms_norm, crest_factor, kurtosis, temperature_delta,
+                   rawRms, rawPeak, rawTemp);
   } else {
     Serial.println("⚠️  WiFi disconnected, retrying...");
     WiFi.reconnect();
@@ -455,9 +395,7 @@ void loop() {
 }
 
 void sendToFirebase(float rmsNorm, float crestFactor, float kurt, float tempDelta,
-                    float freqRatio, float specEnergy,
-                    float rawRms, float rawPeak, float rawTemp,
-                    double rawFreq, double rawAmp) {
+                    float rawRms, float rawPeak, float rawTemp) {
   WiFiClientSecure client;
   client.setInsecure();
   
@@ -479,8 +417,6 @@ void sendToFirebase(float rmsNorm, float crestFactor, float kurt, float tempDelt
   doc["crest_factor"]      = crestFactor;
   doc["kurtosis"]          = kurt;
   doc["temperature_delta"] = tempDelta;
-  doc["freq_ratio"]        = freqRatio;
-  doc["spectral_energy"]   = specEnergy;
 
   // Metadata
   doc["timestamp"]  = millis();
@@ -491,8 +427,6 @@ void sendToFirebase(float rmsNorm, float crestFactor, float kurt, float tempDelt
   raw["rms"]       = rawRms;
   raw["peak"]      = rawPeak;
   raw["temp"]      = rawTemp;
-  raw["fft_freq"]  = rawFreq;
-  raw["fft_amp"]   = rawAmp;
 
   String payload;
   serializeJson(doc, payload);

@@ -137,7 +137,6 @@ Labels: `Healthy` (0), `Degraded` (1), `Critical` (2)
 | `SensorCard.jsx` | Individual sensor metric card (RMS, Temp, etc.) |
 | `HealthGauge.jsx` | Large health status indicator (Healthy/Degraded/Critical) |
 | `TrendChart.jsx` | Historical line chart (Recharts) |
-| `FFTChart.jsx` | Bar/line chart for frequency spectrum |
 | `SystemFlow.jsx` | Animated system architecture diagram |
 | `PredictionPanel.jsx` | ML prediction result + confidence bars |
 

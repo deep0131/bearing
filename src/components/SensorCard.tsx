@@ -7,6 +7,14 @@ interface SensorCardProps {
   icon: string;
   thresholds?: { warn: number; danger: number };
   isText?: boolean;
+  /** Human-readable description of how this value is calculated */
+  howItWorks?: string;
+  /** The raw sensor value used in the calculation */
+  rawLabel?: string;
+  rawValue?: string;
+  /** The baseline / reference value used */
+  baseLabel?: string;
+  baseValue?: string;
 }
 
 const ICONS: Record<string, JSX.Element> = {
@@ -57,19 +65,40 @@ function getStatusBg(value: number | undefined, thresholds?: { warn: number; dan
   return "bg-emerald-400/10";
 }
 
-export default function SensorCard({ label, value, unit, icon, thresholds, isText }: SensorCardProps) {
+export default function SensorCard({
+  label, value, unit, icon, thresholds, isText,
+  howItWorks, rawLabel, rawValue, baseLabel, baseValue,
+}: SensorCardProps) {
   const numValue = typeof value === "number" ? value : undefined;
   const colorClass = getStatusColor(numValue, thresholds);
   const bgClass = getStatusBg(numValue, thresholds);
 
   return (
     <div className="glass-card p-4 animate-fade-in group">
-      {/* Icon + Label */}
-      <div className="flex items-center gap-2 mb-3">
-        <div className={`p-2 rounded-lg ${bgClass} ${colorClass} transition-all duration-300`}>
-          {ICONS[icon] || ICONS.device}
+      {/* Top row: Icon+Label (left) — Raw/Baseline values (top-right) */}
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <div className={`p-2 rounded-lg ${bgClass} ${colorClass} transition-all duration-300`}>
+            {ICONS[icon] || ICONS.device}
+          </div>
+          <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">{label}</span>
         </div>
-        <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">{label}</span>
+        {(rawValue || baseValue) && (
+          <div className="text-[10px] text-right space-y-0.5">
+            {rawValue && (
+              <div>
+                <span className="text-slate-500">{rawLabel || "Raw"}: </span>
+                <span className="font-mono text-purple-400">{rawValue}</span>
+              </div>
+            )}
+            {baseValue && (
+              <div>
+                <span className="text-slate-500">{baseLabel || "Baseline"}: </span>
+                <span className="font-mono text-cyan-400/70">{baseValue}</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Value */}
@@ -86,17 +115,29 @@ export default function SensorCard({ label, value, unit, icon, thresholds, isTex
         )}
       </div>
 
+      {/* How it's calculated — right aligned, 2 lines */}
+      {howItWorks && (() => {
+        const dotIdx = howItWorks.indexOf(". ");
+        const line1 = dotIdx !== -1 ? howItWorks.slice(0, dotIdx + 1) : howItWorks;
+        const line2 = dotIdx !== -1 ? howItWorks.slice(dotIdx + 2) : "";
+        return (
+          <div className="mt-2 text-[10px] text-slate-500 text-right leading-relaxed">
+            <p>{line1}</p>
+            {line2 && <p className="text-slate-400">{line2}</p>}
+          </div>
+        );
+      })()}
+
       {/* Status bar */}
       {thresholds && numValue !== undefined && (
-        <div className="mt-3 h-1 w-full bg-white/5 rounded-full overflow-hidden">
+        <div className="mt-2.5 h-1 w-full bg-white/5 rounded-full overflow-hidden">
           <div
-            className={`h-full rounded-full transition-all duration-700 ease-out ${
-              numValue >= thresholds.danger
-                ? "bg-gradient-to-r from-red-500 to-red-400"
-                : numValue >= thresholds.warn
+            className={`h-full rounded-full transition-all duration-700 ease-out ${numValue >= thresholds.danger
+              ? "bg-gradient-to-r from-red-500 to-red-400"
+              : numValue >= thresholds.warn
                 ? "bg-gradient-to-r from-yellow-500 to-yellow-400"
                 : "bg-gradient-to-r from-emerald-500 to-cyan-400"
-            }`}
+              }`}
             style={{ width: `${Math.min((numValue / (thresholds.danger * 1.5)) * 100, 100)}%` }}
           />
         </div>
